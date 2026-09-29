@@ -4,7 +4,9 @@ import "./App.css";
 
 function App() {
   const [session, setSession] = useState(null);
+  const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState("HOME");
 
   const [authMode, setAuthMode] = useState("login");
 
@@ -17,28 +19,51 @@ function App() {
   const [message, setMessage] = useState("");
 
   useEffect(() => {
-    getSession();
+    loadSession();
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
+    } = supabase.auth.onAuthStateChange((_event, newSession) => {
+      setSession(newSession);
+
+      if (newSession?.user) {
+        loadProfile(newSession.user.id);
+      } else {
+        setProfile(null);
+      }
+
       setLoading(false);
     });
 
     return () => subscription.unsubscribe();
   }, []);
 
-  async function getSession() {
+  async function loadSession() {
     const { data } = await supabase.auth.getSession();
 
     setSession(data.session);
+
+    if (data.session?.user) {
+      await loadProfile(data.session.user.id);
+    }
+
     setLoading(false);
+  }
+
+  async function loadProfile(userId) {
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("*")
+      .eq("id", userId)
+      .single();
+
+    if (!error) {
+      setProfile(data);
+    }
   }
 
   async function handleLogin(e) {
     e.preventDefault();
-
     setMessage("");
 
     const { error } = await supabase.auth.signInWithPassword({
@@ -51,12 +76,11 @@ function App() {
       return;
     }
 
-    setMessage("Welcome to GENZPAGE ✨");
+    setMessage("Welcome back ✨");
   }
 
   async function handleSignup(e) {
     e.preventDefault();
-
     setMessage("");
 
     if (!username.trim()) {
@@ -72,7 +96,7 @@ function App() {
     const year = new Date(dob).getFullYear();
 
     if (year < 1997 || year > 2012) {
-      setMessage("GENZPAGE is currently limited to birth years 1997–2012.");
+      setMessage("Birth year must be between 1997 and 2012.");
       return;
     }
 
@@ -81,16 +105,11 @@ function App() {
       return;
     }
 
-    const { error } = await supabase.auth.signUp({
+    const cleanUsername = username.trim().toLowerCase();
+
+    const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      options: {
-        data: {
-          username: username.trim(),
-          account_type: accountType,
-          date_of_birth: dob,
-        },
-      },
     });
 
     if (error) {
@@ -98,12 +117,172 @@ function App() {
       return;
     }
 
-    setMessage("Account created successfully 🎉");
+    if (!data.user) {
+      setMessage("Account creation failed.");
+      return;
+    }
+
+    const { error: profileError } = await supabase
+      .from("profiles")
+      .insert({
+        id: data.user.id,
+        username: cleanUsername,
+        account_type: accountType,
+        date_of_birth: dob,
+      });
+
+    if (profileError) {
+      setMessage(
+        "Account created but profile setup failed: " +
+          profileError.message
+      );
+      return;
+    }
+
+    setMessage("GENZPAGE account created 🎉");
   }
 
   async function logout() {
     await supabase.auth.signOut();
-    setMessage("");
+    setActiveTab("HOME");
+  }
+
+  function renderPage() {
+    if (activeTab === "HOME") {
+      return (
+        <div className="page">
+          <div className="top-header">
+            <h1>GENZPAGE</h1>
+          </div>
+
+          <section className="section">
+            <div className="section-title">
+              <h2>MY 8</h2>
+              <span>8 PEOPLE</span>
+            </div>
+
+            <div className="my8-row">
+              {Array.from({ length: 8 }).map((_, index) => (
+                <div className="my8-user" key={index}>
+                  <div className="story-avatar">
+                    {index + 1}
+                  </div>
+                  <small>USER</small>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section className="section">
+            <div className="section-title">
+              <h2>Trending Public</h2>
+              <span>FLIPS</span>
+            </div>
+
+            <div className="post-card">
+              <div className="post-header">
+                <div className="mini-avatar">G</div>
+                <div>
+                  <strong>public_user</strong>
+                  <small>PUBLIC ACCOUNT</small>
+                </div>
+              </div>
+
+              <div className="post-placeholder">
+                <span>PUBLIC POST</span>
+              </div>
+
+              <div className="post-actions">
+                ♡ &nbsp; 💬 &nbsp; ↗ &nbsp; 🔖
+              </div>
+            </div>
+          </section>
+        </div>
+      );
+    }
+
+    if (activeTab === "CAMERA") {
+      return (
+        <div className="page center-page">
+          <div className="camera-icon">◉</div>
+          <h1>CAMERA</h1>
+          <p>Tap → Live Photo</p>
+          <p>Hold → 8-second FLIP</p>
+
+          <button className="capture-button">
+            ●
+          </button>
+        </div>
+      );
+    }
+
+    if (activeTab === "PUBLIC") {
+      return (
+        <div className="page">
+          <h1>PUBLIC</h1>
+
+          <div className="filter-row">
+            <button className="filter-active">POSTS</button>
+            <button>FLIPS</button>
+          </div>
+
+          <div className="empty-card">
+            Public posts and FLIPS will appear here.
+          </div>
+        </div>
+      );
+    }
+
+    if (activeTab === "CHATS") {
+      return (
+        <div className="page">
+          <h1>CHATS</h1>
+
+          <div className="chat-card">
+            <div className="mini-avatar">G</div>
+            <div>
+              <strong>Messages</strong>
+              <p>Your conversations will appear here.</p>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    if (activeTab === "PROFILE") {
+      return (
+        <div className="page">
+          <div className="profile-top">
+            <div className="profile-avatar">
+              {profile?.username?.charAt(0).toUpperCase() || "G"}
+            </div>
+
+            <div>
+              <h1>
+                @{profile?.username || "user"}
+              </h1>
+
+              <p>
+                {profile?.account_type === "8"
+                  ? "8 ACCOUNT"
+                  : "PUBLIC ACCOUNT"}
+              </p>
+            </div>
+          </div>
+
+          <div className="profile-info">
+            <p>GENZPAGE user</p>
+            <p>Account: {profile?.account_type || "—"}</p>
+          </div>
+
+          <button className="logout-btn" onClick={logout}>
+            LOGOUT
+          </button>
+        </div>
+      );
+    }
+
+    return null;
   }
 
   if (loading) {
@@ -160,7 +339,9 @@ function App() {
                   type="text"
                   placeholder="Username"
                   value={username}
-                  onChange={(e) => setUsername(e.target.value)}
+                  onChange={(e) =>
+                    setUsername(e.target.value)
+                  }
                 />
 
                 <label>Date of birth</label>
@@ -168,7 +349,9 @@ function App() {
                 <input
                   type="date"
                   value={dob}
-                  onChange={(e) => setDob(e.target.value)}
+                  onChange={(e) =>
+                    setDob(e.target.value)
+                  }
                 />
 
                 <p className="small-text">
@@ -185,7 +368,9 @@ function App() {
                         ? "account-selected"
                         : ""
                     }
-                    onClick={() => setAccountType("8")}
+                    onClick={() =>
+                      setAccountType("8")
+                    }
                   >
                     <strong>8 ACCOUNT</strong>
                     <span>Private circle</span>
@@ -198,7 +383,9 @@ function App() {
                         ? "account-selected"
                         : ""
                     }
-                    onClick={() => setAccountType("public")}
+                    onClick={() =>
+                      setAccountType("public")
+                    }
                   >
                     <strong>PUBLIC ACCOUNT</strong>
                     <span>Public profile</span>
@@ -211,7 +398,9 @@ function App() {
               type="email"
               placeholder="Email"
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={(e) =>
+                setEmail(e.target.value)
+              }
               required
             />
 
@@ -219,11 +408,16 @@ function App() {
               type="password"
               placeholder="Password"
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              onChange={(e) =>
+                setPassword(e.target.value)
+              }
               required
             />
 
-            <button className="main-button" type="submit">
+            <button
+              className="main-button"
+              type="submit"
+            >
               {authMode === "login"
                 ? "LOGIN"
                 : "CREATE ACCOUNT"}
@@ -242,19 +436,59 @@ function App() {
 
   return (
     <div className="app">
-      <main className="page center-page">
-        <h1>GENZPAGE</h1>
+      <main>{renderPage()}</main>
 
-        <div className="avatar">
-          G
-        </div>
-
-        <p>You're logged in 🎉</p>
-
-        <button className="logout-btn" onClick={logout}>
-          LOGOUT
+      <nav className="bottom-nav">
+        <button
+          className={
+            activeTab === "HOME" ? "active" : ""
+          }
+          onClick={() => setActiveTab("HOME")}
+        >
+          <span>⌂</span>
+          HOME
         </button>
-      </main>
+
+        <button
+          className={
+            activeTab === "CAMERA" ? "active" : ""
+          }
+          onClick={() => setActiveTab("CAMERA")}
+        >
+          <span>◉</span>
+          CAMERA
+        </button>
+
+        <button
+          className={
+            activeTab === "PUBLIC" ? "active" : ""
+          }
+          onClick={() => setActiveTab("PUBLIC")}
+        >
+          <span>✦</span>
+          PUBLIC
+        </button>
+
+        <button
+          className={
+            activeTab === "CHATS" ? "active" : ""
+          }
+          onClick={() => setActiveTab("CHATS")}
+        >
+          <span>♡</span>
+          CHATS
+        </button>
+
+        <button
+          className={
+            activeTab === "PROFILE" ? "active" : ""
+          }
+          onClick={() => setActiveTab("PROFILE")}
+        >
+          <span>●</span>
+          PROFILE
+        </button>
+      </nav>
     </div>
   );
 }
